@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node src/index.js"
   },
+  "engines": {
+    "node": "14.x"
+  },
   "license": "MIT",
   "dependencies": {
     "axios": "^0.26.1",
