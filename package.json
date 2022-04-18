@@ -1,0 +1,17 @@
+{
+  "name": "salesforce-large-files-uploader-heroku-app",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^0.26.1",
+    "fastify": "^3.28.0",
+    "merge2": "^1.4.1",
+    "node-fetch": "^3.2.3",
+    "pino-pretty": "^7.6.1"
+  }
+}
