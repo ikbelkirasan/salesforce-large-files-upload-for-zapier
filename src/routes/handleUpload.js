@@ -1,6 +1,8 @@
 import { finished } from "stream";
 import fetch from "node-fetch";
 import CustomFormData from "../helpers/CustomFormData.js";
+import { PassThrough, pipeline } from "stream";
+import { Throttle } from "stream-throttle";
 
 const perform = async ({
   accessToken,
@@ -22,14 +24,22 @@ const perform = async ({
     const fileSize = Number(downloadResponse.headers.get("content-length"));
     console.log("file size:", fileSize);
 
+    const fileContents = pipeline(
+      downloadResponse.body,
+      new Throttle({
+        rate: 50 * 1024 ** 2, // Max: 50 MB/s
+      }),
+      new PassThrough(),
+      (error) => {
+        if (error) {
+          console.error("[error]", error);
+        }
+      }
+    );
+
     const formData = new CustomFormData()
       .appendJson("entity_content", metadata)
-      .appendStream(
-        "VersionData",
-        downloadResponse.body,
-        metadata.Title,
-        fileSize
-      )
+      .appendStream("VersionData", fileContents, metadata.Title, fileSize)
       .finalize();
 
     const headers = formData.getHeaders();
