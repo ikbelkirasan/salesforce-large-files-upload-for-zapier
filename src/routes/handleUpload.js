@@ -75,6 +75,10 @@ const perform = async ({
     error = err;
     console.error(error);
   } finally {
+    console.log({
+      result,
+      error,
+    });
     await fetch(callbackUrl, {
       method: "post",
       body: JSON.stringify({
