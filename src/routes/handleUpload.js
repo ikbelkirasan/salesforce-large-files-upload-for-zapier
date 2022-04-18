@@ -19,9 +19,17 @@ const perform = async ({
       throw new Error("Failed to download the file");
     }
 
+    const fileSize = Number(downloadResponse.headers.get("content-length"));
+    console.log("file size:", fileSize);
+
     const formData = new CustomFormData()
       .appendJson("entity_content", metadata)
-      .appendStream("VersionData", downloadResponse.body, metadata.Title)
+      .appendStream(
+        "VersionData",
+        downloadResponse.body,
+        metadata.Title,
+        fileSize
+      )
       .finalize();
 
     const headers = formData.getHeaders();

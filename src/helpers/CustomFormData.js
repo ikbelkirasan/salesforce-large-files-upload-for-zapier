@@ -21,6 +21,7 @@ export default class CustomFormData {
   _additionalBoundary = "--";
   LF = "\r\n";
   dataStream = new CombinedStream();
+  contentLength = 0;
 
   getBody() {
     return this.dataStream.get();
@@ -28,6 +29,7 @@ export default class CustomFormData {
 
   getHeaders() {
     return {
+      "Content-Length": this.contentLength,
       "Content-Type": "multipart/form-data; boundary=" + this.getBoundary(),
     };
   }
@@ -35,7 +37,6 @@ export default class CustomFormData {
   appendJson(name, value, contentType = "application/json") {
     this.appendString(this.getHeader(name, contentType));
     this.appendString(JSON.stringify(value) + this.LF);
-    // this.appendString(this.LF);
     return this;
   }
 
@@ -43,11 +44,13 @@ export default class CustomFormData {
     name,
     stream,
     filename,
+    length = 0,
     contentType = "application/octet-stream"
   ) {
     this.appendString(this.getHeader(name, contentType, filename));
     this.dataStream.append(stream);
     this.appendString(this.LF);
+    this.contentLength += length;
     return this;
   }
 
@@ -57,7 +60,9 @@ export default class CustomFormData {
   }
 
   appendString(value) {
+    const length = value.length;
     this.dataStream.append(Readable.from(value));
+    this.contentLength += length;
     return this;
   }
 
