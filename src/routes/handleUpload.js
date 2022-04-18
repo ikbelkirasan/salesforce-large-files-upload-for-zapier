@@ -21,7 +21,7 @@ const perform = async ({
 
     const formData = new CustomFormData()
       .appendJson("entity_content", metadata)
-      .appendStream("VersionData", downloadResponse.body)
+      .appendStream("VersionData", downloadResponse.body, metadata.Title)
       .finalize();
 
     const headers = formData.getHeaders();
