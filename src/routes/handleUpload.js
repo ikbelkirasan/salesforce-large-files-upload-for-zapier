@@ -86,6 +86,7 @@ const perform = async ({
 };
 
 export default async function handleUpload(req, res) {
+  console.log("[req]", req.body);
   perform(req.body);
 
   return {
