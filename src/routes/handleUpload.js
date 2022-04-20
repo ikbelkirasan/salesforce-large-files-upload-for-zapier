@@ -27,7 +27,7 @@ const perform = async ({
     const fileContents = pipeline(
       downloadResponse.body,
       new Throttle({
-        rate: 20 * 1024 ** 2,
+        rate: 50 * 1024 ** 2,
       }),
       new PassThrough(),
       (error) => {
