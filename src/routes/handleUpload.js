@@ -14,19 +14,20 @@ const perform = async ({
   let result = null;
 
   try {
+    console.log("downloading:", fileUrl);
     // Start downloading
     const downloadResponse = await fetch(fileUrl);
     if (!downloadResponse.ok) {
       throw new Error("Failed to download the file");
     }
 
-    const fileSize = Number(downloadResponse.headers.get("content-length"));
+    const fileSize = +downloadResponse.headers.get("content-length");
     console.log("file size:", fileSize);
 
     const fileContents = pipeline(
       downloadResponse.body,
       new Throttle({
-        rate: 20 * 1024 ** 2, // Max: 50 MB/s
+        rate: 20 * 1024 ** 2,
       }),
       new PassThrough(),
       (error) => {
@@ -53,6 +54,7 @@ const perform = async ({
       });
 
       try {
+        console.log("Calling salesforce API:", salesforceEndpoint);
         const response = await fetch(salesforceEndpoint, {
           method: "post",
           body,
@@ -61,6 +63,9 @@ const perform = async ({
             Authorization: `Bearer ${accessToken}`,
           },
         });
+        if (!response.ok) {
+          throw new Error(`[${response.status}]` + (await response.text()));
+        }
         resolve(response);
       } catch (error) {
         reject(error);
