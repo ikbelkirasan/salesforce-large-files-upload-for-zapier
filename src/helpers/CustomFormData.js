@@ -9,10 +9,7 @@ class CombinedStream {
   }
 
   get() {
-    return merge2(...this._streams, {
-      //@ts-ignore
-      pipeError: true,
-    });
+    return merge2(...this._streams, { pipeError: true });
   }
 }
 
@@ -30,7 +27,7 @@ export default class CustomFormData {
   getHeaders() {
     return {
       "Content-Length": this.contentLength,
-      "Content-Type": "multipart/form-data; boundary=" + this.getBoundary(),
+      "Content-Type": `multipart/form-data; boundary=${this.getBoundary()}`,
     };
   }
 

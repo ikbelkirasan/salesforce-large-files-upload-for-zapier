@@ -1,8 +1,7 @@
-import { finished } from "stream";
+import { PassThrough, pipeline, finished } from "stream";
 import fetch from "node-fetch";
-import CustomFormData from "../helpers/CustomFormData.js";
-import { PassThrough, pipeline } from "stream";
 import { Throttle } from "stream-throttle";
+import CustomFormData from "../helpers/CustomFormData.js";
 
 const perform = async ({
   accessToken,
@@ -27,7 +26,7 @@ const perform = async ({
     const fileContents = pipeline(
       downloadResponse.body,
       new Throttle({
-        rate: 50 * 1024 ** 2, // Max: 50 MB/s
+        rate: 20 * 1024 ** 2, // Max: 50 MB/s
       }),
       new PassThrough(),
       (error) => {
@@ -75,16 +74,10 @@ const perform = async ({
     error = err;
     console.error(error);
   } finally {
-    console.log({
-      result,
-      error,
-    });
+    console.log({ result, error });
     await fetch(callbackUrl, {
       method: "post",
-      body: JSON.stringify({
-        error,
-        result,
-      }),
+      body: JSON.stringify({ error, result }),
       headers: {
         "content-type": "application/json",
       },
@@ -96,6 +89,6 @@ export default async function handleUpload(req, res) {
   perform(req.body);
 
   return {
-    staredAt: new Date().toISOString(),
+    startedAt: new Date().toISOString(),
   };
 }
