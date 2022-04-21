@@ -1,10 +1,7 @@
 import Fastify from "fastify";
 import config from "./config.js";
 import handleUpload from "./routes/handleUpload.js";
-import fs from "fs";
-
-const tempContents = fs.readdirSync("/tmp");
-console.log("Temp:", tempContents);
+import "./common.js";
 
 const fastify = Fastify({
   logger: {
