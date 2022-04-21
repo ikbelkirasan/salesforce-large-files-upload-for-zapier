@@ -1,7 +1,75 @@
 import { PassThrough, pipeline, finished } from "stream";
 import fetch from "node-fetch";
 import { Throttle } from "stream-throttle";
+import deferred from "defer-promise";
 import CustomFormData from "../helpers/CustomFormData.js";
+
+const uploadToSalesforce = async ({
+  body,
+  salesforceEndpoint,
+  headers,
+  accessToken,
+}) => {
+  const response = await new Promise(async (resolve, reject) => {
+    finished(body, (error) => {
+      if (error) {
+        reject(error);
+      }
+    });
+
+    try {
+      console.log("Calling salesforce API:", salesforceEndpoint);
+      const response = await fetch(salesforceEndpoint, {
+        method: "post",
+        body,
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`[${response.status}]` + (await response.text()));
+      }
+      resolve(response);
+    } catch (error) {
+      reject(error);
+    }
+  });
+
+  return response;
+};
+
+const startFileDownload = async (fileUrl) => {
+  console.log("downloading:", fileUrl);
+  // Start downloading
+  const downloadResponse = await fetch(fileUrl);
+  if (!downloadResponse.ok) {
+    throw new Error("Failed to download the file");
+  }
+
+  const fileSize = +downloadResponse.headers.get("content-length");
+  console.log("file size:", fileSize);
+
+  return {
+    body: downloadResponse.body,
+    fileSize,
+  };
+};
+
+const pPipeline = (...args) => {
+  const d = deferred();
+  const stream = pipeline(...args, (error) => {
+    if (error) {
+      d.reject(error);
+    } else {
+      d.resolve();
+    }
+  });
+  return {
+    stream,
+    promise: d.promise,
+  };
+};
 
 const perform = async ({
   accessToken,
@@ -14,27 +82,12 @@ const perform = async ({
   let result = null;
 
   try {
-    console.log("downloading:", fileUrl);
-    // Start downloading
-    const downloadResponse = await fetch(fileUrl);
-    if (!downloadResponse.ok) {
-      throw new Error("Failed to download the file");
-    }
+    const { body: fileBodyStream, fileSize } = await startFileDownload(fileUrl);
 
-    const fileSize = +downloadResponse.headers.get("content-length");
-    console.log("file size:", fileSize);
-
-    const fileContents = pipeline(
-      downloadResponse.body,
-      new Throttle({
-        rate: 50 * 1024 ** 2,
-      }),
-      new PassThrough(),
-      (error) => {
-        if (error) {
-          console.error("[error]", error);
-        }
-      }
+    const { stream: fileContents, promise: writingPromise } = pPipeline(
+      fileBodyStream,
+      new Throttle({ rate: 20 * 1024 ** 2 }),
+      new PassThrough()
     );
 
     const formData = new CustomFormData()
@@ -42,40 +95,22 @@ const perform = async ({
       .appendStream("VersionData", fileContents, metadata.Title, fileSize)
       .finalize();
 
-    const headers = formData.getHeaders();
-    const body = formData.getBody();
-
     // Start the upload
-    const response = await new Promise(async (resolve, reject) => {
-      finished(body, (error) => {
-        if (error) {
-          reject(error);
-        }
-      });
+    const [response] = await Promise.all([
+      uploadToSalesforce({
+        accessToken,
+        body: formData.getBody(),
+        headers: formData.getHeaders(),
+        salesforceEndpoint,
+      }),
+      writingPromise,
+    ]);
 
-      try {
-        console.log("Calling salesforce API:", salesforceEndpoint);
-        const response = await fetch(salesforceEndpoint, {
-          method: "post",
-          body,
-          headers: {
-            ...headers,
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-        if (!response.ok) {
-          throw new Error(`[${response.status}]` + (await response.text()));
-        }
-        resolve(response);
-      } catch (error) {
-        reject(error);
-      }
-    });
-
-    // Send back the results to Zapier
+    // Send the results back to Zapier
     result = await response.json();
     console.log("result:", result);
   } catch (err) {
+    // Should retry??
     error = err;
     console.error(error);
   } finally {
