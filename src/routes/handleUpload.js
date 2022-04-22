@@ -1,8 +1,17 @@
 import { PassThrough, pipeline, finished } from "stream";
 import fetch from "node-fetch";
-import { Throttle } from "stream-throttle";
 import deferred from "defer-promise";
+import Bandwidth from "stream-bandwidth";
+import { Throttle } from "../helpers/StreamThrottle.js";
 import CustomFormData from "../helpers/CustomFormData.js";
+
+// TODO: remove
+// const emit = IncomingMessage.prototype.emit;
+// IncomingMessage.prototype.emit = function (...args) {
+//   console.log("[req]", args);
+//   return emit.call(this, ...args);
+// };
+// TODO: remove
 
 const uploadToSalesforce = async ({
   body,
@@ -41,6 +50,7 @@ const uploadToSalesforce = async ({
 
 const startFileDownload = async (fileUrl) => {
   console.log("downloading:", fileUrl);
+
   // Start downloading
   const downloadResponse = await fetch(fileUrl);
   if (!downloadResponse.ok) {
@@ -82,24 +92,65 @@ const perform = async ({
   let result = null;
 
   try {
+    const bw = new Bandwidth();
+    bw.on("done", (data) => {
+      let c = data.total_bytes / (1024 * 1024);
+      c = c.toFixed(2);
+      console.log(c + "MB");
+    });
+
+    bw.on("progress", (data) => {
+      let c = data.bytes / (1024 * 1024);
+      c = c.toFixed(2);
+      console.log(c + "MB/s");
+    });
+
+    // TODO: test salesforce auth here first. Otherwise fail early
+
     const { body: fileBodyStream, fileSize } = await startFileDownload(fileUrl);
+
+    const passThrough = new PassThrough();
 
     const { stream: fileContents, promise: writingPromise } = pPipeline(
       fileBodyStream,
-      new Throttle({ rate: 20 * 1024 ** 2 }),
-      new PassThrough()
+      // new Throttle({ rate: 200 * 1024 ** 2 }),
+      passThrough,
+      bw
     );
+
+    // setTimeout(() => {
+    //   passThrough.pause();
+    // }, 200);
 
     const formData = new CustomFormData()
       .appendJson("entity_content", metadata)
       .appendStream("VersionData", fileContents, metadata.Title, fileSize)
       .finalize();
 
+    const body = formData.getBody();
+
+    const pp = pipeline(
+      body,
+      // new Throttle({ rate: 100 * 1024 ** 2 }),
+      new PassThrough(),
+      (error) => {
+        if (error) {
+          console.error("[!]", error);
+        }
+      }
+    );
+
+    // const emit = pp.emit;
+    // pp.emit = function (...args) {
+    //   console.log("[pp]", args);
+    //   return emit.call(this, ...args);
+    // };
+
     // Start the upload
     const [response] = await Promise.all([
       uploadToSalesforce({
         accessToken,
-        body: formData.getBody(),
+        body: pp,
         headers: formData.getHeaders(),
         salesforceEndpoint,
       }),

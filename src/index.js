@@ -10,6 +10,7 @@ const fastify = Fastify({
 });
 
 fastify.post("/upload", handleUpload);
+fastify.post("/test", () => {});
 
 try {
   await fastify.listen(config.port, config.host);
