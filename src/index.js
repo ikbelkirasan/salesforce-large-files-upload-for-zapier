@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import config from "./config.js";
 import handleUpload from "./routes/handleUpload.js";
-import "./common.js";
+// import "./common.js";
 
 const fastify = Fastify({
   logger: {
