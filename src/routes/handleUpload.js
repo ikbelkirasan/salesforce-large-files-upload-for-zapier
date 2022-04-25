@@ -118,8 +118,7 @@ class Job {
 
       try {
         console.log("Calling salesforce API:", this.salesforceEndpoint);
-        const response = await axios.post(this.salesforceEndpoint, {
-          data: body,
+        const response = await axios.post(this.salesforceEndpoint, body, {
           headers: {
             ...headers,
             Authorization: `Bearer ${this.accessToken}`,
