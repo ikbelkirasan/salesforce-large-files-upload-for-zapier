@@ -1,184 +1,160 @@
-import { PassThrough, pipeline, finished } from "stream";
-import fetch from "node-fetch";
-import deferred from "defer-promise";
-import Bandwidth from "stream-bandwidth";
-import { Throttle } from "../helpers/StreamThrottle.js";
-import CustomFormData from "../helpers/CustomFormData.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pipeline, finished } from "node:stream";
+import FormData from "form-data";
+import { v4 as uuid } from "uuid";
+import axios from "axios";
 
-// TODO: remove
-// const emit = IncomingMessage.prototype.emit;
-// IncomingMessage.prototype.emit = function (...args) {
-//   console.log("[req]", args);
-//   return emit.call(this, ...args);
-// };
-// TODO: remove
+class TempFile {
+  constructor() {
+    this.filePath = path.join(os.tmpdir(), uuid());
+  }
 
-const uploadToSalesforce = async ({
-  body,
-  salesforceEndpoint,
-  headers,
-  accessToken,
-}) => {
-  const response = await new Promise(async (resolve, reject) => {
-    finished(body, (error) => {
-      if (error) {
+  getWritableStream() {
+    if (!this._writableStream) {
+      this._writableStream = fs.createWriteStream(this.filePath);
+    }
+    return this._writableStream;
+  }
+
+  getReadableStream() {
+    if (!this._readableStream) {
+      this._readableStream = fs.createReadStream(this.filePath);
+    }
+    return this._readableStream;
+  }
+
+  async destroy() {
+    try {
+      await fs.promises.unlink(this.filePath);
+      console.log(`Temp file removed successfully. ${this.filePath}`);
+    } catch (error) {
+      console.error("Could not delete temp file. " + error.message);
+    }
+  }
+}
+
+class Job {
+  constructor({
+    accessToken,
+    salesforceEndpoint,
+    fileUrl,
+    metadata,
+    callbackUrl,
+  }) {
+    this.accessToken = accessToken;
+    this.salesforceEndpoint = salesforceEndpoint;
+    this.fileUrl = fileUrl;
+    this.metadata = metadata;
+    this.callbackUrl = callbackUrl;
+    this.tempFile = new TempFile();
+    this.result = null;
+    this.error = null;
+  }
+
+  async perform() {
+    try {
+      const { body: fileBodyStream, fileSize } = await this.startFileDownload();
+
+      // Download file into a temporary folder
+      await new Promise((resolve, reject) => {
+        pipeline(fileBodyStream, this.tempFile.getWritableStream(), (error) => {
+          if (error) {
+            return reject(error);
+          }
+          resolve();
+        });
+      });
+
+      // Generate payload
+      const formData = new FormData();
+      formData.append("entity_content", JSON.stringify(this.metadata), {
+        contentType: "application/json",
+      });
+      formData.append("VersionData", this.tempFile.getReadableStream(), {
+        filename: this.metadata.Title,
+        knownLength: fileSize,
+      });
+
+      // Start uploading...
+      this.result = await this.uploadToSalesforce({
+        body: formData,
+        headers: formData.getHeaders(),
+      });
+
+      console.log("result:", this.result);
+    } catch (error) {
+      this.error = {
+        status: error.response?.status,
+        message: error.message,
+        stack: error.stack,
+      };
+    } finally {
+      console.info({ result: this.result, error: this.error });
+      await this.tempFile.destroy();
+      await this.sendResultsBackToZapier();
+    }
+  }
+
+  async sendResultsBackToZapier() {
+    try {
+      await axios.post(this.callbackUrl, {
+        error: this.error,
+        result: this.result,
+      });
+    } catch (error) {
+      console.error(error.response.status, error.message, error.response?.data);
+    }
+  }
+
+  async uploadToSalesforce({ body, headers }) {
+    const response = await new Promise(async (resolve, reject) => {
+      finished(body, (error) => {
+        if (error) {
+          reject(error);
+        }
+      });
+
+      try {
+        console.log("Calling salesforce API:", this.salesforceEndpoint);
+        const response = await axios.post(this.salesforceEndpoint, {
+          data: body,
+          headers: {
+            ...headers,
+            Authorization: `Bearer ${this.accessToken}`,
+          },
+        });
+        resolve(response.data);
+      } catch (error) {
         reject(error);
       }
     });
 
-    try {
-      console.log("Calling salesforce API:", salesforceEndpoint);
-      const response = await fetch(salesforceEndpoint, {
-        method: "post",
-        body,
-        headers: {
-          ...headers,
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error(`[${response.status}]` + (await response.text()));
-      }
-      resolve(response);
-    } catch (error) {
-      reject(error);
-    }
-  });
-
-  return response;
-};
-
-const startFileDownload = async (fileUrl) => {
-  console.log("downloading:", fileUrl);
-
-  // Start downloading
-  const downloadResponse = await fetch(fileUrl);
-  if (!downloadResponse.ok) {
-    throw new Error("Failed to download the file");
+    return response;
   }
 
-  const fileSize = +downloadResponse.headers.get("content-length");
-  console.log("file size:", fileSize);
+  async startFileDownload() {
+    console.log("downloading:", this.fileUrl);
 
-  return {
-    body: downloadResponse.body,
-    fileSize,
-  };
-};
-
-const pPipeline = (...args) => {
-  const d = deferred();
-  const stream = pipeline(...args, (error) => {
-    if (error) {
-      d.reject(error);
-    } else {
-      d.resolve();
-    }
-  });
-  return {
-    stream,
-    promise: d.promise,
-  };
-};
-
-const perform = async ({
-  accessToken,
-  salesforceEndpoint,
-  fileUrl,
-  metadata,
-  callbackUrl,
-}) => {
-  let error = null;
-  let result = null;
-
-  try {
-    const bw = new Bandwidth();
-    bw.on("done", (data) => {
-      let c = data.total_bytes / (1024 * 1024);
-      c = c.toFixed(2);
-      console.log(c + "MB");
+    // Start downloading
+    const downloadResponse = await axios.get(this.fileUrl, {
+      responseType: "stream",
     });
 
-    bw.on("progress", (data) => {
-      let c = data.bytes / (1024 * 1024);
-      c = c.toFixed(2);
-      console.log(c + "MB/s");
-    });
+    // const fileSize = +downloadResponse.headers.get("content-length");
+    const fileSize = +downloadResponse.headers["content-length"];
+    console.log("file size:", fileSize);
 
-    // TODO: test salesforce auth here first. Otherwise fail early
-
-    const { body: fileBodyStream, fileSize } = await startFileDownload(fileUrl);
-
-    const passThrough = new PassThrough();
-
-    const { stream: fileContents, promise: writingPromise } = pPipeline(
-      fileBodyStream,
-      // new Throttle({ rate: 200 * 1024 ** 2 }),
-      passThrough,
-      bw
-    );
-
-    // setTimeout(() => {
-    //   passThrough.pause();
-    // }, 200);
-
-    const formData = new CustomFormData()
-      .appendJson("entity_content", metadata)
-      .appendStream("VersionData", fileContents, metadata.Title, fileSize)
-      .finalize();
-
-    const body = formData.getBody();
-
-    const pp = pipeline(
-      body,
-      // new Throttle({ rate: 100 * 1024 ** 2 }),
-      new PassThrough(),
-      (error) => {
-        if (error) {
-          console.error("[!]", error);
-        }
-      }
-    );
-
-    // const emit = pp.emit;
-    // pp.emit = function (...args) {
-    //   console.log("[pp]", args);
-    //   return emit.call(this, ...args);
-    // };
-
-    // Start the upload
-    const [response] = await Promise.all([
-      uploadToSalesforce({
-        accessToken,
-        body: pp,
-        headers: formData.getHeaders(),
-        salesforceEndpoint,
-      }),
-      writingPromise,
-    ]);
-
-    // Send the results back to Zapier
-    result = await response.json();
-    console.log("result:", result);
-  } catch (err) {
-    // Should retry??
-    error = err;
-    console.error(error);
-  } finally {
-    console.log({ result, error });
-    await fetch(callbackUrl, {
-      method: "post",
-      body: JSON.stringify({ error, result }),
-      headers: {
-        "content-type": "application/json",
-      },
-    });
+    return {
+      body: downloadResponse.data,
+      fileSize,
+    };
   }
-};
+}
 
-export default async function handleUpload(req, res) {
-  console.log("[req]", req.body);
-  perform(req.body);
+export default async function handleUpload(req) {
+  new Job(req.body).perform();
 
   return {
     startedAt: new Date().toISOString(),
