@@ -5,6 +5,7 @@ import { pipeline, finished } from "node:stream";
 import FormData from "form-data";
 import { v4 as uuid } from "uuid";
 import axios from "axios";
+import fetch from "node-fetch";
 
 class TempFile {
   constructor() {
@@ -118,15 +119,18 @@ class Job {
 
       try {
         console.log("Calling salesforce API:", this.salesforceEndpoint);
-        const response = await axios.post(this.salesforceEndpoint, body, {
-          maxBodyLength: Infinity,
-          maxContentLength: Infinity,
+        const response = await fetch(this.salesforceEndpoint, {
+          method: "post",
+          body,
           headers: {
             ...headers,
             Authorization: `Bearer ${this.accessToken}`,
           },
         });
-        resolve(response.data);
+        if (!response.ok) {
+          throw new Error(`[${response.status}] ${await response.text()}`);
+        }
+        resolve(await response.json());
       } catch (error) {
         reject(error);
       }
