@@ -143,9 +143,12 @@ class Job {
     console.log("downloading:", this.fileUrl);
 
     // Start downloading
-    const downloadResponse = await axios.get(this.fileUrl, {
-      responseType: "stream",
-    });
+    const downloadResponse = await fetch(this.fileUrl);
+    if (!downloadResponse.ok) {
+      throw new Error(
+        "Failed to download the file. " + (await downloadResponse.text())
+      );
+    }
 
     // const fileSize = +downloadResponse.headers.get("content-length");
     const fileSize = +downloadResponse.headers["content-length"];
