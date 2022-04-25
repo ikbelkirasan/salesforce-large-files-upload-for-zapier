@@ -86,9 +86,9 @@ class Job {
       console.log("result:", this.result);
     } catch (error) {
       this.error = {
-        status: error.response?.status,
         message: error.message,
-        stack: error.stack,
+        status: error.response?.status,
+        data: error.response?.data,
       };
     } finally {
       console.info({ result: this.result, error: this.error });
