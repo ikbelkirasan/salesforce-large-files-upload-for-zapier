@@ -150,8 +150,7 @@ class Job {
       );
     }
 
-    // const fileSize = +downloadResponse.headers.get("content-length");
-    const fileSize = +downloadResponse.headers["content-length"];
+    const fileSize = +downloadResponse.headers.get("content-length");
     console.log("file size:", fileSize);
 
     return {

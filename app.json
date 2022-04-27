@@ -1,0 +1,7 @@
+{
+  "name": "Salesforce Large Files Download",
+  "description": "Handles uploading files to Salesforce for the custom Zapier integration",
+  "repository": "https://github.com/ikbelkirasan/salesforce-large-files-upload-for-zapier",
+  "logo": "https://node-js-sample.herokuapp.com/node.png",
+  "keywords": ["node"]
+}
