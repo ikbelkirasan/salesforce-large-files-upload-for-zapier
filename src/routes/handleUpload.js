@@ -154,7 +154,7 @@ class Job {
     console.log("file size:", fileSize);
 
     return {
-      body: downloadResponse.data,
+      body: downloadResponse.body,
       fileSize,
     };
   }
